@@ -1,0 +1,15 @@
+www
+mail
+ftp
+admin
+dev
+test
+api
+blog
+shop
+support
+login
+secure
+webmail
+cpanel
+whm
