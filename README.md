@@ -1,8 +1,8 @@
-# 🐉 Subdomain Hunter v2.5
+# 🐉 Subdomain Hunter v3.0
 
 > **3 Başlı Ejderha** | Red Team | Purple Team | Blue Team
 
-Hedef domain'in alt alanlarını hızlı ve etkili bir şekilde tespit eden **profesyonel** subdomain bulma aracı. Asenkron DNS, pasif enumeration ve çoklu thread desteği ile donatılmıştır.
+Hedef domain'in alt alanlarını hızlı ve etkili bir şekilde tespit eden **profesyonel** subdomain bulma aracı. Asenkron DNS, pasif enumeration, retry mekanizması ve çoklu eşzamanlı tarama desteği ile donatılmıştır.
 
 ---
 
@@ -19,6 +19,9 @@ Hedef domain'in alt alanlarını hızlı ve etkili bir şekilde tespit eden **pr
 | 📁 **JSON/CSV Rapor** | Yapılandırılmış çıktı |
 | 🎨 **Renkli Çıktı** | Durum kodlarına göre renklendirme |
 | ⏱️ **Timeout Ayarları** | Zaman aşımı konfigürasyonu |
+| 🔁 **Retry Desteği** | DNS/HTTP hatalarında otomatik yeniden deneme |
+| 🧪 **Domain Doğrulama** | Geçersiz domain girişlerini erken engeller |
+| 🧬 **Permutation Modu** | Wordlist'ten otomatik varyasyon üretimi |
 
 ---
 
@@ -69,15 +72,30 @@ python subhunter.py example.com -o sonuc.csv --format csv
 python subhunter.py example.com -to 10
 ```
 
+### Retry sayısını artırma
+```bash
+python subhunter.py example.com -r 4
+```
+
+### Pasif enumeration kapatma
+```bash
+python subhunter.py example.com --no-passive
+```
+
+### Permutation modu açma
+```bash
+python subhunter.py example.com --permutations
+```
+
 ---
 
 ## 📊 Örnek Çıktı
 
 ```bash
 ╔══════════════════════════════════════════════════════════════╗
-║   🐉 Subdomain Hunter v2.5 - 3 Başlı Ejderha                  ║
+║   🐉 Subdomain Hunter v3.0 - 3 Başlı Ejderha                  ║
 ║   🔴 Red Team | 🟣 Purple Team | 🔵 Blue Team                ║
-║   ⚡ Async DNS | crt.sh | Permutation | JSON/CSV             ║
+║   ⚡ Async DNS | crt.sh | Retry | JSON/CSV                   ║
 ╚══════════════════════════════════════════════════════════════╝
 
 [+] Hedef domain: google.com
@@ -133,11 +151,24 @@ Aktif subdomainler:
 |-----------|----------|------------|
 | `domain` | Hedef domain | Zorunlu |
 | `-w, --wordlist` | Wordlist dosyası | `wordlists/common.txt` |
-| `-t, --threads` | Thread sayısı | 50 |
+| `-t, --threads` | Eşzamanlı görev sayısı | 50 |
 | `-to, --timeout` | Zaman aşımı (saniye) | 5 |
+| `-r, --retries` | DNS/HTTP retry sayısı | 2 |
 | `-o, --output` | Çıktı dosyası (JSON/CSV) | Yok |
 | `--format` | Çıktı formatı (json/csv) | json |
 | `--dns-only` | Sadece DNS sorgusu | Kapalı |
+| `--no-passive` | crt.sh pasif enumeration kapalı | Kapalı |
+| `--permutations` | Wordlist varyasyonları üret | Kapalı |
+
+---
+
+## 🆕 v3.0 Değişiklikleri
+
+- DNS ve HTTP kontrollerinde otomatik retry eklendi.
+- Pasif enumeration artık isteğe bağlı kapatılabiliyor (`--no-passive`).
+- Wordlist tabanlı permutation taraması isteğe bağlı hale getirildi (`--permutations`).
+- Domain format doğrulaması eklendi.
+- JSON çıktısı artık sürüm ve tarama metadata bilgileri içeriyor.
 
 ---
 
