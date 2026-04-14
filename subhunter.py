@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Subdomain Hunter v2.5 🐉
+Subdomain Hunter v3.0 🐉
 3 Başlı Ejderha | Red Team | Purple Team | Blue Team
 
 Özellikler:
@@ -25,23 +25,37 @@ import csv
 from datetime import datetime
 from colorama import init, Fore, Style
 import random
-from concurrent.futures import ThreadPoolExecutor
-import socket
+import re
+from time import perf_counter
 
 # Renkleri başlat
 init(autoreset=True)
 
 # Banner
+VERSION = "3.0"
+
 BANNER = f"""
 {Fore.BLUE}╔══════════════════════════════════════════════════════════════╗
-║   🐉 Subdomain Hunter v2.5 - 3 Başlı Ejderha                  ║
+║   🐉 Subdomain Hunter v{VERSION} - 3 Başlı Ejderha                 ║
 ║   🔴 Red Team | 🟣 Purple Team | 🔵 Blue Team                ║
-║   ⚡ Async DNS | crt.sh | Permutation | JSON/CSV             ║
+║   ⚡ Async DNS | crt.sh | Retry | JSON/CSV                   ║
 ╚══════════════════════════════════════════════════════════════╝{Style.RESET_ALL}
 """
 
 class SubdomainHunter:
-    def __init__(self, domain, wordlist, threads=50, timeout=5, output=None, format='json', dns_only=False):
+    def __init__(
+        self,
+        domain,
+        wordlist,
+        threads=50,
+        timeout=5,
+        output=None,
+        format='json',
+        dns_only=False,
+        retries=2,
+        no_passive=False,
+        permutations=False
+    ):
         self.domain = domain.lower()
         self.wordlist = wordlist
         self.threads = threads
@@ -49,11 +63,16 @@ class SubdomainHunter:
         self.output = output
         self.format = format
         self.dns_only = dns_only
+        self.retries = retries
+        self.no_passive = no_passive
+        self.permutations = permutations
         
         self.found = []
         self.wildcard_ip = None
         self.semaphore = asyncio.Semaphore(threads)
         self.passive_subs = []
+        self.scan_started_at = None
+        self.total_targets = 0
         
     def generate_permutations(self, subdomain):
         """Permutation saldırısı (alt alan varyasyonları)"""
@@ -82,7 +101,8 @@ class SubdomainHunter:
         subdomains = set()
         
         try:
-            async with aiohttp.ClientSession() as session:
+            headers = {"User-Agent": f"subdomain-hunter/{VERSION}"}
+            async with aiohttp.ClientSession(headers=headers) as session:
                 async with session.get(url, timeout=10) as response:
                     if response.status == 200:
                         data = await response.json()
@@ -90,11 +110,10 @@ class SubdomainHunter:
                             name = entry.get('name_value', '')
                             if name and not name.startswith('*'):
                                 for sub in name.split('\n'):
-                                    if self.domain in sub:
-                                        # Sadece subdomain kısmını al
-                                        clean_sub = sub.strip().lower()
+                                    clean_sub = sub.strip().lower()
+                                    if self.domain in clean_sub:
                                         if clean_sub.endswith(f".{self.domain}"):
-                                            subdomains.add(clean_sub.replace(f".{self.domain}", ""))
+                                            subdomains.add(clean_sub.replace(f".{self.domain}", "").strip("."))
                                         elif clean_sub == self.domain:
                                             pass
                                         else:
@@ -135,13 +154,18 @@ class SubdomainHunter:
     async def dns_lookup(self, subdomain):
         """DNS sorgusu yap (A kaydı)"""
         full_domain = f"{subdomain}.{self.domain}"
-        try:
-            loop = asyncio.get_running_loop()
-            answers = await loop.run_in_executor(None, lambda: dns.resolver.resolve(full_domain, 'A'))
-            ips = [str(answer) for answer in answers]
-            return {'subdomain': full_domain, 'ips': ips, 'resolved': True}
-        except:
-            return {'subdomain': full_domain, 'resolved': False}
+        loop = asyncio.get_running_loop()
+        resolver = dns.resolver.Resolver()
+        resolver.timeout = self.timeout
+        resolver.lifetime = self.timeout
+        for _ in range(self.retries + 1):
+            try:
+                answers = await loop.run_in_executor(None, lambda: resolver.resolve(full_domain, 'A'))
+                ips = [str(answer) for answer in answers]
+                return {'subdomain': full_domain, 'ips': ips, 'resolved': True}
+            except Exception:
+                continue
+        return {'subdomain': full_domain, 'resolved': False}
     
     async def http_check(self, subdomain, session):
         """HTTP/HTTPS isteği yap"""
@@ -150,17 +174,20 @@ class SubdomainHunter:
         
         for scheme in ['https', 'http']:
             url = f"{scheme}://{full_domain}"
-            try:
-                async with session.get(url, timeout=self.timeout, ssl=False, allow_redirects=True) as response:
-                    results.append({
-                        'url': url,
-                        'status': response.status,
-                        'title': await self.get_title(response),
-                        'server': response.headers.get('Server', 'Unknown')[:30]
-                    })
-                    break
-            except:
-                continue
+            for _ in range(self.retries + 1):
+                try:
+                    async with session.get(url, timeout=self.timeout, ssl=False, allow_redirects=True) as response:
+                        results.append({
+                            'url': url,
+                            'status': response.status,
+                            'title': await self.get_title(response),
+                            'server': response.headers.get('Server', 'Unknown')[:30]
+                        })
+                        break
+                except Exception:
+                    continue
+            if results:
+                break
         
         return results
     
@@ -168,10 +195,10 @@ class SubdomainHunter:
         """Sayfa başlığını al"""
         try:
             text = await response.text()
-            if '<title>' in text:
-                title = text.split('<title>')[1].split('</title>')[0]
-                return title[:60]
-        except:
+            match = re.search(r"<title[^>]*>(.*?)</title>", text, flags=re.IGNORECASE | re.DOTALL)
+            if match:
+                return " ".join(match.group(1).split())[:60]
+        except Exception:
             pass
         return ""
     
@@ -233,24 +260,38 @@ class SubdomainHunter:
     
     async def scan(self):
         """Ana tarama fonksiyonu"""
+        self.scan_started_at = datetime.now()
+        start_perf = perf_counter()
         print(BANNER)
         print(f"{Fore.YELLOW}[+] Hedef domain: {self.domain}{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}[+] Wordlist: {len(self.wordlist)} subdomain{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}[+] Thread: {self.threads}{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}[+] Timeout: {self.timeout}s{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}[+] Retry: {self.retries}{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}[+] DNS Only: {'Evet' if self.dns_only else 'Hayır'}{Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}[+] Başlangıç: {datetime.now()}{Style.RESET_ALL}\n")
+        print(f"{Fore.YELLOW}[+] Başlangıç: {self.scan_started_at}{Style.RESET_ALL}\n")
         
         # Pasif enumeration
-        passive_subs = await self.passive_enumeration()
-        print()
+        passive_subs = []
+        if not self.no_passive:
+            passive_subs = await self.passive_enumeration()
+            print()
+        else:
+            print(f"{Fore.YELLOW}[!] Pasif enumeration devre dışı{Style.RESET_ALL}\n")
         
         # Wildcard kontrolü
         self.check_wildcard()
         print()
         
-        # Wordlist'e pasif subdomainleri ekle
-        all_subs = list(set(self.wordlist + passive_subs))
+        base_wordlist = list(set(self.wordlist + passive_subs))
+        if self.permutations:
+            perm_subs = set()
+            for sub in base_wordlist:
+                perm_subs.update(self.generate_permutations(sub))
+            all_subs = list(set(base_wordlist + list(perm_subs)))
+        else:
+            all_subs = base_wordlist
+        self.total_targets = len(all_subs)
         print(f"{Fore.GREEN}[+] Toplam hedef: {len(all_subs)} subdomain ({len(self.wordlist)} aktif + {len(passive_subs)} pasif){Style.RESET_ALL}\n")
         
         # HTTP session
@@ -277,19 +318,21 @@ class SubdomainHunter:
             
             # Başarılı olanları topla
             self.found = [r for r in results if r is not None]
+            self.found.sort(key=lambda x: (x.get('http', {}).get('status', 999), x['subdomain']))
         
         # Rapor oluştur
-        self.generate_report()
+        self.generate_report(perf_counter() - start_perf)
     
-    def generate_report(self):
+    def generate_report(self, elapsed_seconds):
         """Rapor oluştur"""
         print(f"\n{Fore.CYAN}╔══════════════════════════════════════════════════════════════╗")
         print(f"║                    TARAMA ÖZETİ                                      ║")
         print(f"╚══════════════════════════════════════════════════════════════════╝{Style.RESET_ALL}")
         
         print(f"{Fore.YELLOW}[+] Hedef: {self.domain}{Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}[+] Taranan: {len(self.wordlist)} aktif + pasif subdomain{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}[+] Taranan: {self.total_targets} toplam subdomain{Style.RESET_ALL}")
         print(f"{Fore.GREEN}[+] Bulunan: {len(self.found)} aktif subdomain{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}[+] Süre: {elapsed_seconds:.2f} saniye{Style.RESET_ALL}")
         
         if self.found:
             print(f"\n{Fore.GREEN}Aktif subdomainler:{Style.RESET_ALL}")
@@ -305,7 +348,15 @@ class SubdomainHunter:
         if self.output:
             if self.format == 'json':
                 with open(self.output, 'w', encoding='utf-8') as f:
-                    json.dump(self.found, f, indent=2, ensure_ascii=False, default=str)
+                    payload = {
+                        "version": VERSION,
+                        "target": self.domain,
+                        "started_at": self.scan_started_at.isoformat() if self.scan_started_at else None,
+                        "total_targets": self.total_targets,
+                        "found_count": len(self.found),
+                        "results": self.found
+                    }
+                    json.dump(payload, f, indent=2, ensure_ascii=False, default=str)
                 print(f"\n{Fore.GREEN}[+] JSON raporu kaydedildi: {self.output}{Style.RESET_ALL}")
             elif self.format == 'csv':
                 with open(self.output, 'w', newline='', encoding='utf-8') as f:
@@ -330,9 +381,14 @@ def load_wordlist(file_path):
         print(f"{Fore.RED}[!] Wordlist bulunamadı: {file_path}{Style.RESET_ALL}")
         sys.exit(1)
 
+def validate_domain(domain):
+    """Basit domain doğrulama"""
+    pattern = r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))+$"
+    return re.match(pattern, domain) is not None
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Subdomain Hunter v2.5 - Alt Alan Adı Bulma Aracı",
+        description="Subdomain Hunter v3.0 - Alt Alan Adı Bulma Aracı",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Örnekler:
@@ -351,8 +407,14 @@ def main():
     parser.add_argument("-o", "--output", help="Çıktı dosyası (JSON veya CSV)")
     parser.add_argument("--format", choices=['json', 'csv'], default='json', help="Çıktı formatı (varsayılan: json)")
     parser.add_argument("--dns-only", action="store_true", help="Sadece DNS sorgusu yap (HTTP kontrol yok)")
+    parser.add_argument("-r", "--retries", type=int, default=2, help="DNS/HTTP retry sayısı (varsayılan: 2)")
+    parser.add_argument("--no-passive", action="store_true", help="Pasif enumeration (crt.sh) devre dışı bırak")
+    parser.add_argument("--permutations", action="store_true", help="Wordlist üzerinden permutation üret")
     
     args = parser.parse_args()
+    if not validate_domain(args.domain):
+        print(f"{Fore.RED}[!] Geçersiz domain formatı: {args.domain}{Style.RESET_ALL}")
+        sys.exit(1)
     
     # Wordlist yükle
     wordlist = load_wordlist(args.wordlist)
@@ -365,7 +427,10 @@ def main():
         timeout=args.timeout,
         output=args.output,
         format=args.format,
-        dns_only=args.dns_only
+        dns_only=args.dns_only,
+        retries=max(0, args.retries),
+        no_passive=args.no_passive,
+        permutations=args.permutations
     )
     
     try:
