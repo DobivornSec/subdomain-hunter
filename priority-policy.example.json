@@ -1,0 +1,11 @@
+{
+  "_note": "Override only needed fields. Use --profile for presets.",
+  "base_score": 10,
+  "high_signal_tokens": ["admin", "dev", "staging", "test", "api", "vpn", "jenkins", "git", "db"],
+  "high_signal_bonus": 35,
+  "status_bonus_2xx": 30,
+  "status_bonus_3xx": 20,
+  "status_bonus_auth": 25,
+  "status_bonus_4xx_5xx": 10,
+  "dns_only_bonus": 15
+}

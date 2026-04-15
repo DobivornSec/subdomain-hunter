@@ -1,4 +1,4 @@
-# 🐉 Subdomain Hunter v3.0
+# 🐉 Subdomain Hunter v4.0
 
 > **3 Başlı Ejderha** | Red Team | Purple Team | Blue Team
 
@@ -12,9 +12,14 @@ Hedef domain'in alt alanlarını hızlı ve etkili bir şekilde tespit eden **pr
 |---------|----------|
 | ⚡ **Asenkron DNS** | 300+ subdomain/saniye hız |
 | 🔍 **Wordlist tabanlı** | 150+ yaygın subdomain |
-| 🕵️ **Pasif Enumeration** | crt.sh'den SSL sertifikalarıyla subdomain bulma |
+| 🕵️ **Pasif Enumeration** | crt.sh + BufferOver kaynaklarından toplama |
 | 🌐 **HTTP/HTTPS Kontrol** | Durum kodu, başlık, server bilgisi |
 | 🎯 **Wildcard Tespiti** | Sahte sonuçları filtreleme |
+| ✅ **DNS Stabilite Doğrulama** | Çoklu doğrulama turu ile false-positive azaltma |
+| 🎛️ **Tarama Modları** | `aggressive`, `balanced`, `strict` presetleri |
+| 📈 **Yanıt Süresi Takibi** | HTTP sonuçlarında `response_time_ms` metriği |
+| 🚦 **Öncelik Skoru** | Sonuçlarda basit `priority_score` üretimi |
+| 🧾 **Skor Açıklaması** | JSON sonuçlarda `score_breakdown` ile puan sebepleri |
 | 📊 **DNS Only Mod** | Sadece DNS sorgusu (çok hızlı) |
 | 📁 **JSON/CSV Rapor** | Yapılandırılmış çıktı |
 | 🎨 **Renkli Çıktı** | Durum kodlarına göre renklendirme |
@@ -22,6 +27,7 @@ Hedef domain'in alt alanlarını hızlı ve etkili bir şekilde tespit eden **pr
 | 🔁 **Retry Desteği** | DNS/HTTP hatalarında otomatik yeniden deneme |
 | 🧪 **Domain Doğrulama** | Geçersiz domain girişlerini erken engeller |
 | 🧬 **Permutation Modu** | Wordlist'ten otomatik varyasyon üretimi |
+| 🔒 **Güvenli TLS Varsayılanı** | HTTPS kontrollerinde sertifika doğrulaması varsayılan açık |
 
 ---
 
@@ -87,13 +93,54 @@ python subhunter.py example.com --no-passive
 python subhunter.py example.com --permutations
 ```
 
+### TLS doğrulamasını kapatma (sadece test/lab)
+```bash
+python subhunter.py example.com --insecure
+```
+
+### Öncelik skoruna göre filtreleme
+```bash
+python subhunter.py example.com --min-priority 60 --top 20
+```
+
+### Özel priority policy ile tarama
+```bash
+cp priority-policy.example.json priority-policy.json
+python subhunter.py example.com --priority-policy priority-policy.json
+```
+
+### Hazır profille tarama
+```bash
+python subhunter.py example.com --profile redteam
+python subhunter.py example.com --profile bugbounty
+```
+
+### False-positive azaltma için sıkı doğrulama
+```bash
+python subhunter.py example.com --mode strict
+```
+
+### Daha agresif keşif (daha fazla sonuç)
+```bash
+python subhunter.py example.com --mode aggressive
+```
+
+### Adaptif mod (hedefe göre otomatik optimizasyon)
+```bash
+python subhunter.py example.com --mode adaptive
+```
+> Adaptif mod, tarama sırasında `resolved rate`, `HTTP hit rate` ve filtrelenen gürültü oranına göre thread/retry/verify ayarlarını dinamik günceller.
+> JSON çıktıda `stats.adaptive_decisions` alanı ile hangi kararın neden alındığını görebilirsin.
+> Ayrıca `stats.adaptive_decision_summary` ile kararların özet etkisini (strict/throughput geçiş sayıları ve ortalama delta) alırsın.
+> CLI özet ekranında da adaptif karar özeti ve kısa bir health badge (`GOOD`, `NOISY`, `AGGRESSIVE`) gösterilir.
+
 ---
 
 ## 📊 Örnek Çıktı
 
 ```bash
 ╔══════════════════════════════════════════════════════════════╗
-║   🐉 Subdomain Hunter v3.0 - 3 Başlı Ejderha                  ║
+║   🐉 Subdomain Hunter v4.0 - 3 Başlı Ejderha                  ║
 ║   🔴 Red Team | 🟣 Purple Team | 🔵 Blue Team                ║
 ║   ⚡ Async DNS | crt.sh | Retry | JSON/CSV                   ║
 ╚══════════════════════════════════════════════════════════════╝
@@ -159,16 +206,28 @@ Aktif subdomainler:
 | `--dns-only` | Sadece DNS sorgusu | Kapalı |
 | `--no-passive` | crt.sh pasif enumeration kapalı | Kapalı |
 | `--permutations` | Wordlist varyasyonları üret | Kapalı |
+| `--insecure` | HTTPS TLS sertifika doğrulamasını kapat | Kapalı |
+| `--priority-policy` | Priority score policy JSON dosyası | Yok |
+| `--profile` | Hazır priority profili (`default`, `redteam`, `bugbounty`, `quick`) | default |
+| `--mode` | Tarama modu (`aggressive`, `balanced`, `strict`, `adaptive`) | balanced |
+| `--min-priority` | Bu skorun altındaki sonuçları filtrele | 0 |
+| `--top` | En yüksek öncelikli ilk N sonucu tut | 0 (kapalı) |
+| `--verify-rounds` | DNS doğrulama turu (false-positive azaltma) | 2 |
 
 ---
 
-## 🆕 v3.0 Değişiklikleri
+## 🆕 v4.0 Değişiklikleri
 
-- DNS ve HTTP kontrollerinde otomatik retry eklendi.
-- Pasif enumeration artık isteğe bağlı kapatılabiliyor (`--no-passive`).
-- Wordlist tabanlı permutation taraması isteğe bağlı hale getirildi (`--permutations`).
-- Domain format doğrulaması eklendi.
-- JSON çıktısı artık sürüm ve tarama metadata bilgileri içeriyor.
+- Pasif kaynaklar crt.sh + BufferOver olarak genişletildi (daha fazla sonuç).
+- DNS doğrulama `A + AAAA + CNAME` ile güçlendirildi.
+- Wildcard tespiti çoklu deneme ve CNAME desteği ile sıkılaştırıldı.
+- `--verify-rounds` ile çoklu DNS stabilite kontrolü eklendi (false-positive azaltma).
+- JSON şeması `2.0` oldu; çıktı metrikleri ve skor açıklamaları korunuyor.
+- `--mode` ile hız/doğruluk için hazır presetler eklendi:
+  - `aggressive`: daha hızlı ve geniş kapsam
+  - `balanced`: dengeli varsayılan
+  - `strict`: false-positive azaltma odaklı
+  - `adaptive`: wildcard/hedef hacmine göre otomatik ayar
 
 ---
 
@@ -200,6 +259,34 @@ github, docker, kube, kubernetes, k8s, istio, consul, vault, terraform
 
 ---
 
+## 🧪 Test ve CI
+
+```bash
+pip install pytest
+pytest -q
+```
+
+Depoda GitHub Actions CI hattı bulunur; `push` ve `pull_request` olaylarında testler otomatik çalışır.
+
+---
+
+## 🛠️ Makefile Komutları
+
+```bash
+make install
+make lint
+make test
+make bench
+```
+
+`make bench` varsayılan olarak DNS-only kısa bir performans koşusu yapar. Farklı hedef için:
+
+```bash
+make bench BENCH_DOMAIN=target.com BENCH_THREADS=80 BENCH_TIMEOUT=5
+```
+
+---
+
 ## ⚠️ Uyarı
 
 > Bu araç **eğitim ve yetkili testler** için geliştirilmiştir. İzinsiz tarama yapmak yasa dışı olabilir. Sorumluluk kullanıcıya aittir.
@@ -207,3 +294,12 @@ github, docker, kube, kubernetes, k8s, istio, consul, vault, terraform
 ## ⭐ Star Atmayı Unutma!
 
 Beğendiysen GitHub'da ⭐ bırakmayı unutma!
+
+---
+
+## 📌 GitHub Paylaşım Notu
+
+Projeyi paylaşmadan önce aşağıdakileri kontrol et:
+- Yetkisiz hedeflere karşı kullanılmaması için etik/yasal uyarıyı koru.
+- Yeni sürümde değişiklikleri `CHANGELOG.md` dosyasında güncel tut.
+- CI (`.github/workflows/ci.yml`) geçtiğinden emin ol.
